@@ -3,7 +3,7 @@ import { Prompt, PromptVersion } from "../interfaces";
 import { Telemetry } from "../telemetry/telemetry";
 import { getPromptByKey } from "./registry";
 import { renderMessages } from "./template";
-export { waitForInitialization } from "./registry";
+export { initializeRegistry, waitForInitialization } from "./registry";
 
 const getEffectiveVersion = (prompt: Prompt): PromptVersion => {
   const version = prompt.versions.find(

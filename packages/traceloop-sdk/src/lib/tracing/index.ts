@@ -4,6 +4,7 @@ import {
   BatchSpanProcessor,
   SpanProcessor,
   ReadableSpan,
+  SpanExporter,
 } from "@opentelemetry/sdk-trace-node";
 import { baggageUtils } from "@opentelemetry/core";
 import { Span, context, diag } from "@opentelemetry/api";
@@ -11,7 +12,7 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { Resource } from "@opentelemetry/resources";
 import { SEMRESATTRS_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 import { Instrumentation } from "@opentelemetry/instrumentation";
-import { InitializeOptions } from "../interfaces";
+import { InitializeOptions, ValidatedInitializeOptions } from "../interfaces";
 import {
   ASSOCATION_PROPERTIES_KEY,
   ENTITY_NAME_KEY,
@@ -221,63 +222,42 @@ export const manuallyInitInstrumentations = (
 };
 
 /**
- * Initializes the Traceloop SDK.
- * Must be called once before any other SDK methods.
+ * Set up a span processor that sends traces to Traceloop.
  *
- * @param options - The options to initialize the SDK. See the {@link InitializeOptions} for details.
- * @throws {InitializationError} if the configuration is invalid or if failed to fetch feature data.
+ * @param apiKey - The API key to use for the Traceloop API.
+ * @param baseUrl - The base URL to use for the Traceloop API.
  */
-export const startTracing = (options: InitializeOptions) => {
-  if (Object.keys(options.instrumentModules || {}).length > 0) {
-    manuallyInitInstrumentations(options.instrumentModules);
-  }
-  if (!shouldSendTraces()) {
-    openAIInstrumentation?.setConfig({
-      traceContent: false,
-    });
-    azureOpenAIInstrumentation?.setConfig({
-      traceContent: false,
-    });
-    llamaIndexInstrumentation?.setConfig({
-      traceContent: false,
-    });
-    vertexaiInstrumentation?.setConfig({
-      traceContent: false,
-    });
-    aiplatformInstrumentation?.setConfig({
-      traceContent: false,
-    });
-    bedrockInstrumentation?.setConfig({
-      traceContent: false,
-    });
-    cohereInstrumentation?.setConfig({
-      traceContent: false,
-    });
-    chromadbInstrumentation?.setConfig({
-      traceContent: false,
-    });
-    togetherInstrumentation?.setConfig({
-      traceContent: false,
-    });
-  }
-
+export const initializeTraceExporter = (options: ValidatedInitializeOptions) => {
   const headers =
     options.headers ||
     (process.env.TRACELOOP_HEADERS
       ? baggageUtils.parseKeyPairsIntoRecord(process.env.TRACELOOP_HEADERS)
       : { Authorization: `Bearer ${options.apiKey}` });
 
-  const traceExporter =
-    options.exporter ??
-    new OTLPTraceExporter({
-      url: `${options.baseUrl}/v1/traces`,
-      headers,
-    });
-  _spanProcessor = options.disableBatch
+  return new OTLPTraceExporter({
+    url: `${options.baseUrl}/v1/traces`,
+    headers,
+  });
+};
+
+/**
+ * Set up a span processor that sends traces to Traceloop.
+ *
+ * This is based on https://github.com/traceloop/openllmetry-js/blob/main/packages/traceloop-sdk/src/lib/tracing/index.ts
+ * but does not force a specific initialization of the OpenTelemetry SDK.
+ *
+ * @param traceExporter - The trace exporter to use.
+ * @returns The span processor.
+ */
+export const initializeSpanProcessor = (
+  traceExporter: SpanExporter,
+  disableBatch = false,
+) => {
+  const spanProcessor = disableBatch
     ? new SimpleSpanProcessor(traceExporter)
     : new BatchSpanProcessor(traceExporter);
 
-  _spanProcessor.onStart = (span: Span) => {
+  spanProcessor.onStart = (span: Span) => {
     const workflowName = context.active().getValue(WORKFLOW_NAME_KEY);
     if (workflowName) {
       span.setAttribute(
@@ -307,8 +287,8 @@ export const startTracing = (options: InitializeOptions) => {
     }
   };
 
-  const originalOnEnd = _spanProcessor.onEnd?.bind(_spanProcessor);
-  _spanProcessor.onEnd = (span: ReadableSpan) => {
+  const originalOnEnd = spanProcessor.onEnd?.bind(spanProcessor);
+  spanProcessor.onEnd = (span: ReadableSpan) => {
     // Vercel AI Adapters
     const attributes = span.attributes;
 
@@ -318,7 +298,7 @@ export const startTracing = (options: InitializeOptions) => {
       "ai.streamText.doStream": "ai.streamText.stream",
     };
     if (span.name in nameMap) {
-      // Unfortuantely, the span name is not writable as this is not the intended behavior
+      // Unfortunately, the span name is not writable as this is not the intended behavior
       // but it is a workaround to set the correct span name
       (span as any).name = nameMap[span.name];
     }
@@ -372,6 +352,58 @@ export const startTracing = (options: InitializeOptions) => {
 
     originalOnEnd?.(span);
   };
+
+  return spanProcessor;
+};
+
+/**
+ * Initializes the Traceloop SDK.
+ * Must be called once before any other SDK methods.
+ *
+ * @param options - The options to initialize the SDK. See the {@link InitializeOptions} for details.
+ * @throws {InitializationError} if the configuration is invalid or if failed to fetch feature data.
+ */
+export const startTracing = (options: ValidatedInitializeOptions) => {
+  if (Object.keys(options.instrumentModules || {}).length > 0) {
+    manuallyInitInstrumentations(options.instrumentModules);
+  }
+  if (!shouldSendTraces()) {
+    openAIInstrumentation?.setConfig({
+      traceContent: false,
+    });
+    azureOpenAIInstrumentation?.setConfig({
+      traceContent: false,
+    });
+    llamaIndexInstrumentation?.setConfig({
+      traceContent: false
+    });
+    vertexaiInstrumentation?.setConfig({
+      traceContent: false
+    });
+    aiplatformInstrumentation?.setConfig({
+      traceContent: false
+    });
+    bedrockInstrumentation?.setConfig({
+      traceContent: false
+    });
+    cohereInstrumentation?.setConfig({
+      traceContent: false
+    });
+    chromadbInstrumentation?.setConfig({
+      traceContent: false
+    });
+    togetherInstrumentation?.setConfig({
+      traceContent: false
+    });
+  }
+
+  const traceExporter =
+    options.exporter ?? initializeTraceExporter(options);
+
+  _spanProcessor = initializeSpanProcessor(
+    traceExporter,
+    options.disableBatch,
+  );
 
   if (options.exporter) {
     Telemetry.getInstance().capture("tracer:init", {

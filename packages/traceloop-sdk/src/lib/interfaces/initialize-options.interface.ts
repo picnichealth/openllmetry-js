@@ -143,3 +143,12 @@ export interface InitializeOptions {
    */
   silenceInitializationMessage?: boolean;
 }
+
+export type ValidatedInitializeOptions = InitializeOptions & {
+  appName: string;
+  baseUrl: string;
+  traceloopSyncEnabled: boolean;
+  traceloopSyncMaxRetries: number;
+  traceloopSyncPollingInterval: number;
+  traceloopSyncDevPollingInterval: number;
+};

@@ -1,4 +1,4 @@
-import { InitializeOptions, Prompt } from "../interfaces";
+import { Prompt, ValidatedInitializeOptions } from "../interfaces";
 import { InitializationError, PromptNotFoundError } from "../errors";
 import { fetchPrompts } from "./fetch";
 import { diag } from "@opentelemetry/api";
@@ -31,7 +31,7 @@ const populateRegistry = (prompts: unknown[]) => {
   });
 };
 
-export const initializeRegistry = (options: InitializeOptions) => {
+export const initializeRegistry = (options: ValidatedInitializeOptions) => {
   const {
     baseUrl,
     traceloopSyncEnabled,

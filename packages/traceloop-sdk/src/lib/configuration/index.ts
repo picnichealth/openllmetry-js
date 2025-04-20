@@ -1,9 +1,10 @@
-import { InitializeOptions } from "../interfaces";
+import { InitializeOptions, ValidatedInitializeOptions } from "../interfaces";
 import { validateConfiguration } from "./validation";
 import { startTracing } from "../tracing";
 import { initializeRegistry } from "../prompts/registry";
 import { diag, DiagConsoleLogger, DiagLogLevel } from "@opentelemetry/api";
 import { TraceloopClient } from "../client/traceloop-client";
+export { validateConfiguration };
 
 export let _configuration: InitializeOptions | undefined;
 let _client: TraceloopClient | undefined;
@@ -29,6 +30,32 @@ export const initialize = (options: InitializeOptions) => {
     return;
   }
 
+  applyDefaultOptions(options);
+  validateConfiguration(options);
+
+  _configuration = Object.freeze(options);
+
+  if (options.logLevel) {
+    diag.setLogger(
+      new DiagConsoleLogger(),
+      logLevelToOtelLogLevel(options.logLevel),
+    );
+  }
+
+  if (!options.silenceInitializationMessage) {
+    console.log(
+      `Traceloop exporting traces to ${
+        _configuration.exporter ? "a custom exporter" : _configuration.baseUrl
+      }`,
+    );
+  }
+
+  startTracing(options);
+  initializeRegistry(options);
+  return initializeClient(options);
+};
+
+export const applyDefaultOptions = (options: InitializeOptions) => {
   if (!options.baseUrl) {
     options.baseUrl =
       process.env.TRACELOOP_BASE_URL || "https://api.traceloop.com";
@@ -66,37 +93,20 @@ export const initialize = (options: InitializeOptions) => {
         Number(process.env.TRACELOOP_SYNC_DEV_POLLING_INTERVAL) || 5;
     }
   }
+};
 
-  validateConfiguration(options);
+export const initializeClient = (
+  options: ValidatedInitializeOptions,
+) => {
+  if (!options.apiKey) return _client;
 
-  _configuration = Object.freeze(options);
+  _client ||= new TraceloopClient({
+    apiKey: options.apiKey,
+    baseUrl: options.baseUrl,
+    appName: options.appName,
+  });
 
-  if (options.logLevel) {
-    diag.setLogger(
-      new DiagConsoleLogger(),
-      logLevelToOtelLogLevel(options.logLevel),
-    );
-  }
-
-  if (!options.silenceInitializationMessage) {
-    console.log(
-      `Traceloop exporting traces to ${
-        _configuration.exporter ? "a custom exporter" : _configuration.baseUrl
-      }`,
-    );
-  }
-
-  startTracing(_configuration);
-  initializeRegistry(_configuration);
-  if (options.apiKey) {
-    _client = new TraceloopClient({
-      apiKey: options.apiKey,
-      baseUrl: options.baseUrl,
-      appName: options.appName!,
-    });
-    return _client;
-  }
-  return;
+  return _client;
 };
 
 const logLevelToOtelLogLevel = (

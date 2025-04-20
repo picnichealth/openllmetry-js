@@ -1,9 +1,11 @@
-import { InitializeOptions } from "../interfaces";
+import { InitializeOptions, ValidatedInitializeOptions } from "../interfaces";
 import { InitializationError } from "../errors";
 
-export const validateConfiguration = (options: InitializeOptions): void => {
+export const validateConfiguration: (options: InitializeOptions) => asserts options is ValidatedInitializeOptions = (options) => {
   const {
     apiKey,
+    baseUrl,
+    appName,
     traceloopSyncEnabled,
     traceloopSyncMaxRetries,
     traceloopSyncPollingInterval,
@@ -11,6 +13,14 @@ export const validateConfiguration = (options: InitializeOptions): void => {
   } = options;
   if (apiKey && typeof apiKey !== "string") {
     throw new InitializationError('"apiKey" must be a string');
+  }
+
+  if (!baseUrl || typeof baseUrl !== "string") {
+    throw new InitializationError('"baseUrl" must be a string');
+  }
+
+  if (!appName || typeof appName !== "string") {
+    throw new InitializationError('"appName" must be a string');
   }
 
   if (traceloopSyncEnabled) {
